@@ -1,0 +1,64 @@
+{
+  "tracks": [
+    {
+      "id": "waterfall",
+      "title": "Selale",
+      "subtitle": "Yumusak su sesi",
+      "artworkUrl": "",
+      "audioUrl": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+      "assetPath": "assets/audio/core/waterfall.mp3",
+      "category": "waterfall",
+      "license": "placeholder",
+      "sourceName": "Replace with your final source",
+      "activeLayers": 4
+    },
+    {
+      "id": "forest",
+      "title": "Orman",
+      "subtitle": "Ruzgar ve yaprak hissi",
+      "artworkUrl": "",
+      "audioUrl": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
+      "assetPath": "assets/audio/core/forest.mp3",
+      "category": "forest",
+      "license": "placeholder",
+      "sourceName": "Replace with your final source",
+      "activeLayers": 3
+    },
+    {
+      "id": "ocean",
+      "title": "Okyanus",
+      "subtitle": "Derin dalga ambiyansi",
+      "artworkUrl": "",
+      "audioUrl": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
+      "assetPath": "assets/audio/core/ocean.mp3",
+      "category": "ocean",
+      "license": "placeholder",
+      "sourceName": "Replace with your final source",
+      "activeLayers": 5
+    },
+    {
+      "id": "birds",
+      "title": "Kuslar",
+      "subtitle": "Dengeli kus civiltilari",
+      "artworkUrl": "",
+      "audioUrl": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",
+      "assetPath": "assets/audio/core/birds.mp3",
+      "category": "birds",
+      "license": "placeholder",
+      "sourceName": "Replace with your final source",
+      "activeLayers": 2
+    },
+    {
+      "id": "fire",
+      "title": "Ates",
+      "subtitle": "Sicak ates cirtisi",
+      "artworkUrl": "",
+      "audioUrl": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3",
+      "assetPath": "assets/audio/core/fireplace.mp3",
+      "category": "fire",
+      "license": "placeholder",
+      "sourceName": "Replace with your final source",
+      "activeLayers": 2
+    }
+  ]
+}
