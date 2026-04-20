@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config/store_links.dart';
+import 'legal_document_sheet.dart';
+import 'legal_documents.dart';
 
 Future<void> openPrivacyPolicy(BuildContext context) {
   return _openConfiguredUrl(
     context,
     kPrivacyPolicyUrl,
     'Gizlilik politikası',
+    fallbackBody: kPrivacyPolicyDocumentTr,
   );
 }
 
@@ -16,32 +19,23 @@ Future<void> openTermsOfUse(BuildContext context) {
     context,
     kTermsOfUseUrl,
     'Kullanım şartları',
+    fallbackBody: kTermsOfUseDocumentTr,
   );
 }
 
 Future<void> _openConfiguredUrl(
   BuildContext context,
   String url,
-  String title,
-) async {
+  String title, {
+  required String fallbackBody,
+}) async {
   final trimmed = url.trim();
   if (trimmed.isEmpty) {
     if (!context.mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: const Text(
-          'Mağazaya yüklemeden önce gerçek sayfayı yayımlayıp '
-          'lib/core/config/store_links.dart dosyasındaki bağlantıyı güncelleyin.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Tamam'),
-          ),
-        ],
-      ),
+    await showLegalDocumentSheet(
+      context,
+      title: title,
+      body: fallbackBody,
     );
     return;
   }

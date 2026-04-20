@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'dart:ui';
+
+import '../../../core/navigation/tab_reselect_provider.dart';
 import '../../../core/routing/app_route.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/glass_card.dart';
@@ -15,49 +18,98 @@ import '../../player/application/playback_visibility.dart';
 import '../../player/domain/audio_catalog.dart';
 import '../application/library_notifier.dart';
 
-class LibraryScreen extends ConsumerWidget {
+class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+class _LibraryScreenState extends ConsumerState<LibraryScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController = TabController(
+    length: 2,
+    vsync: this,
+  );
+  final _catalogScroll = ScrollController();
+  final _favoritesScroll = ScrollController();
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _catalogScroll.dispose();
+    _favoritesScroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     ref.watch(libraryNotifierProvider);
+    listenLibraryTabScrollToTop(
+      ref,
+      AppRoute.library.path,
+      _tabController,
+      _catalogScroll,
+      _favoritesScroll,
+    );
     final chrome = ref.watch(
       shellPlaybackChromeVisibleProvider(AppRoute.library.path),
     );
-    final bottomPad =
-        MediaQuery.paddingOf(context).bottom + (chrome ? 210 : 100);
+    final mq = MediaQuery.paddingOf(context);
+    const tabBarHeight = 48.0;
+    final headerHeight = mq.top + SleepingNoiseAppBar.height + tabBarHeight;
+    final bottomPad = mq.bottom + (chrome ? 210 : 100);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Stack(
       children: [
-        const SafeArea(bottom: false, child: SleepingNoiseAppBar()),
-        Expanded(
-          child: DefaultTabController(
-            length: 2,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TabBar(
-                  labelStyle: GoogleFonts.plusJakartaSans(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
+        Positioned(
+          top: headerHeight,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              _LibraryCatalogTab(
+                bottomPad: bottomPad,
+                scrollController: _catalogScroll,
+              ),
+              _LibraryFavoritesTab(
+                bottomPad: bottomPad,
+                scrollController: _favoritesScroll,
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SafeArea(bottom: false, child: SleepingNoiseAppBar()),
+              ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                  child: Container(
+                    color: AppColors.surface.withValues(alpha: 0.18),
+                    child: TabBar(
+                      controller: _tabController,
+                      labelStyle: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
+                      unselectedLabelColor: AppColors.onSurfaceVariant,
+                      tabs: const [
+                        Tab(text: 'Katalog'),
+                        Tab(text: 'Favoriler'),
+                      ],
+                    ),
                   ),
-                  unselectedLabelColor: AppColors.onSurfaceVariant,
-                  tabs: const [
-                    Tab(text: 'Katalog'),
-                    Tab(text: 'Favoriler'),
-                  ],
                 ),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      _LibraryCatalogTab(bottomPad: bottomPad),
-                      _LibraryFavoritesTab(bottomPad: bottomPad),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ],
@@ -66,9 +118,13 @@ class LibraryScreen extends ConsumerWidget {
 }
 
 class _LibraryCatalogTab extends ConsumerWidget {
-  const _LibraryCatalogTab({required this.bottomPad});
+  const _LibraryCatalogTab({
+    required this.bottomPad,
+    required this.scrollController,
+  });
 
   final double bottomPad;
+  final ScrollController scrollController;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -78,6 +134,7 @@ class _LibraryCatalogTab extends ConsumerWidget {
     final tracks = featuredTracks;
 
     return ListView(
+      controller: scrollController,
       padding: EdgeInsets.fromLTRB(24, 16, 24, bottomPad),
       children: [
         Text(
@@ -121,14 +178,31 @@ class _LibraryCatalogTab extends ConsumerWidget {
                   ),
                   IconButton(
                     tooltip: fav ? 'Favoriden çıkar' : 'Favorilere ekle',
-                    onPressed: () => libCtl.toggleFavoriteTrack(t.id),
+                    onPressed: () async {
+                      await libCtl.toggleFavoriteTrack(t.id);
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          duration: const Duration(seconds: 1),
+                          content: Text(
+                            fav
+                                ? '${t.title} favorilerden çıkarıldı'
+                                : '${t.title} favorilere eklendi',
+                          ),
+                        ),
+                      );
+                    },
                     icon: Icon(
                       fav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                       color: fav ? AppColors.primary : AppColors.onSurfaceVariant,
                     ),
                   ),
                   FilledButton.tonal(
-                    onPressed: () => playSingleSoundscape(ref, t.id),
+                    onPressed: () => playSingleSoundscape(
+                      ref,
+                      t.id,
+                      openNowPlaying: context,
+                    ),
                     child: const Text('Çal'),
                   ),
                 ],
@@ -290,9 +364,13 @@ class _LibraryCatalogTab extends ConsumerWidget {
 }
 
 class _LibraryFavoritesTab extends ConsumerWidget {
-  const _LibraryFavoritesTab({required this.bottomPad});
+  const _LibraryFavoritesTab({
+    required this.bottomPad,
+    required this.scrollController,
+  });
 
   final double bottomPad;
+  final ScrollController scrollController;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -313,6 +391,7 @@ class _LibraryFavoritesTab extends ConsumerWidget {
 
     if (empty) {
       return ListView(
+        controller: scrollController,
         padding: EdgeInsets.fromLTRB(24, 32, 24, bottomPad),
         children: [
           Text(
@@ -327,6 +406,7 @@ class _LibraryFavoritesTab extends ConsumerWidget {
     }
 
     return ListView(
+      controller: scrollController,
       padding: EdgeInsets.fromLTRB(24, 16, 24, bottomPad),
       children: [
         if (favTracks.isNotEmpty) ...[
@@ -361,7 +441,11 @@ class _LibraryFavoritesTab extends ConsumerWidget {
                             color: AppColors.primary),
                       ),
                       FilledButton.tonal(
-                        onPressed: () => playSingleSoundscape(ref, t.id),
+                        onPressed: () => playSingleSoundscape(
+                          ref,
+                          t.id,
+                          openNowPlaying: context,
+                        ),
                         child: const Text('Çal'),
                       ),
                     ],

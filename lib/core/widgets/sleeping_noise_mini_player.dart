@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -40,7 +42,18 @@ class SleepingNoiseMiniPlayer extends ConsumerWidget {
       final track = audioState.currentTrack;
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => context.push(AppRoute.nowPlaying.path),
+        onTap: () {
+          // NP'ye geçerken oynatma durmuşsa otomatik resume — kullanıcı
+          // "playing card"a basınca NP açılıp ses yine duruyor demesin.
+          if (!audioState.isPlaying && !audioState.isLoading) {
+            unawaited(
+              ref
+                  .read(audioControllerProvider.notifier)
+                  .playTrackById(track.id),
+            );
+          }
+          context.push(AppRoute.nowPlaying.path);
+        },
         child: _HomeNowPlayingBar(
           imageUrl: track.artworkUrl,
           title: track.title,

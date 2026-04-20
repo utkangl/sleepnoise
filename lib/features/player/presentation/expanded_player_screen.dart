@@ -1,15 +1,21 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../library/application/library_notifier.dart';
+import '../../mixer/application/mixer_controller.dart';
 import '../application/audio_controller.dart';
 import '../application/playback_owner_controller.dart';
 import '../application/playback_facade.dart';
 import '../application/sleep_timer_controller.dart';
 import 'widgets/expanded_mix_player_body.dart';
+import 'widgets/looping_asset_video.dart';
 import 'widgets/sleep_timer_bottom_sheet.dart';
+import 'widgets/track_video_assets.dart';
 import '../../../core/routing/app_route.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/glass_card.dart';
@@ -24,10 +30,73 @@ class ExpandedPlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _ExpandedPlayerScreenState extends ConsumerState<ExpandedPlayerScreen> {
+  // NP açıldığında hangi modla açıldığını hatırla. Bu mod boyunca tek bir NP
+  // gösteririz; kullanıcı modu değiştirirse veya kaynağı tamamen kapatırsa
+  // ekran kendini kapatır. Sahibe (`PlaybackOwner`) doğrudan bağlanmıyoruz;
+  // çünkü `toggleSinglePlayPause` gibi geçişlerde owner anlık olarak `none`
+  // değerinden geçer ve bu, ekranı yanlışlıkla kapatır.
+  _NowPlayingMode? _mode;
+
+  // Single modda NP ilk açıldığında bir kez auto-resume tetikleyelim.
+  bool _autoResumeChecked = false;
+
   @override
   Widget build(BuildContext context) {
     final owner = ref.watch(playbackOwnerProvider);
-    final showMix = owner == PlaybackOwner.mix;
+
+    // Modu ilk anlamlı owner ile sabitle; sonra sadece "modu sona eren"
+    // koşullarda kapat. Böylece mix NP açıkken miks tamamen kapanırsa
+    // (= aktif katman 0 ve oynatma yok) NP kapanır; tek-ses modunda ise
+    // play/pause sırasında yaşanan anlık owner=none kapatma yapmaz.
+    if (_mode == null) {
+      if (owner == PlaybackOwner.mix) {
+        _mode = _NowPlayingMode.mix;
+      } else if (owner == PlaybackOwner.single) {
+        _mode = _NowPlayingMode.single;
+      }
+    }
+
+    if (_mode == _NowPlayingMode.mix) {
+      // Mix modunda: kullanıcı tüm sesleri kapatsa bile NP açık kalsın
+      // (kullanıcı tekrar açabilmeli). Sadece yeni bir tek-ses başlatılırsa
+      // (owner = single) NP'yi kapatıp single NP'nin açılışına yer veririz.
+      final switchedToSingle = owner == PlaybackOwner.single;
+      if (switchedToSingle) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && context.canPop()) {
+            context.pop();
+          }
+        });
+      }
+    }
+
+    // Single modunda otomatik kapatma yok; kullanıcı pause edip play
+    // yapabilmeli. Mix'e geçiş olursa (mix başlatılırsa) NP'yi yenilemek
+    // yerine kullanıcının manuel akışına bırakıyoruz.
+
+    // NP single modda açıldığında ses durmuş olabilir (örn. mini player'dan
+    // gelinmiş veya başka bir kaynak araya girmiş). Yüklenirken/loading
+    // durumunda dokunmuyoruz; ama owner=single ve isPlaying=false ise bir
+    // kez play tetikliyoruz ki kullanıcı NP'yi açar açmaz oynatma görsün.
+    if (_mode == _NowPlayingMode.single && !_autoResumeChecked) {
+      _autoResumeChecked = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final st = ref.read(audioControllerProvider);
+        if (!st.isPlaying && !st.isLoading) {
+          ref.read(playbackOwnerProvider.notifier).activateSingle();
+          unawaited(
+            ref
+                .read(audioControllerProvider.notifier)
+                .playTrackById(st.currentTrack.id),
+          );
+        }
+      });
+    }
+
+    // Hangi UI'nın gösterileceği `_mode`a göre belirlenir; owner anlık olarak
+    // none olabilse de kullanıcı NP'yi mix olarak açtıysa mix UI'da kalır.
+    final showMix = _mode == _NowPlayingMode.mix;
 
     if (showMix) {
       return Scaffold(
@@ -36,22 +105,39 @@ class _ExpandedPlayerScreenState extends ConsumerState<ExpandedPlayerScreen> {
           fit: StackFit.expand,
           children: [
             const _PlayerMeshBackdrop(),
+            const _NowPlayingMixVideoBackdrop(),
+            const _NowPlayingScrim(),
             SafeArea(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 448),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _PlayerAppBar(
-                        title: 'Karışım',
-                        onClose: () => context.pop(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 448),
+                        child: _PlayerAppBar(
+                          title: 'Karışım',
+                          onClose: () => context.pop(),
+                        ),
                       ),
-                      const ExpandedMixPlayerBody(),
-                    ],
+                    ),
                   ),
-                ),
+                  // İçeriği aşağı doğru hizalamak için reverse:true; küçük
+                  // ekranlarda overflow olursa kullanıcı yukarı kaydırabilir.
+                  Expanded(
+                    child: SingleChildScrollView(
+                      reverse: true,
+                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 448),
+                          child: const ExpandedMixPlayerBody(),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -69,56 +155,79 @@ class _ExpandedPlayerScreenState extends ConsumerState<ExpandedPlayerScreen> {
         fit: StackFit.expand,
         children: [
           const _PlayerMeshBackdrop(),
+          _NowPlayingSingleVideoBackdrop(
+            trackId: state.currentTrack.id,
+            isPlaying: state.isPlaying,
+          ),
+          const _NowPlayingScrim(),
           SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 448),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _PlayerAppBar(
-                      title: 'Şu an çalıyor',
-                      onClose: () => context.pop(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 448),
+                      child: _PlayerAppBar(
+                        title: 'Şu an çalıyor',
+                        onClose: () => context.pop(),
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    _AlbumArtWithGlow(
-                      imageUrl: state.currentTrack.artworkUrl,
-                      category: state.currentTrack.category,
-                    ),
-                    const SizedBox(height: 28),
-                    _TrackRow(
-                      title: state.currentTrack.title,
-                      subtitle: state.currentTrack.subtitle,
-                      loved: library.favoriteTrackIds
-                          .contains(state.currentTrack.id),
-                      onToggleLove: () => ref
-                          .read(libraryNotifierProvider.notifier)
-                          .toggleFavoriteTrack(state.currentTrack.id),
-                    ),
-                    const SizedBox(height: 22),
-                    _SpectralProgressSection(
-                      progress: state.progress,
-                      onSeekRequested: (v) => controller.seekToProgress(v),
-                      positionLabel: _fmtDuration(state.position),
-                      durationLabel: _fmtDuration(state.duration),
-                    ),
-                    const SizedBox(height: 28),
-                    _TransportRow(
-                      playing: state.isPlaying,
-                      shuffle: state.shuffleEnabled,
-                      repeat: state.repeatMode,
-                      onPrevious: () => playSinglePrevious(ref),
-                      onPlayPause: () => toggleSinglePlayPause(ref),
-                      onNext: () => playSingleNext(ref),
-                      onShuffle: () => controller.toggleShuffle(),
-                      onRepeat: () => controller.cycleRepeatMode(),
-                    ),
-                    const SizedBox(height: 28),
-                    const _UtilityPills(),
-                  ],
+                  ),
                 ),
-              ),
+                // Ortadaki büyük yuvarlak (album art + glow) kaldırıldığı
+                // için içerikleri ekranın alt yarısına yaklaştırıyoruz;
+                // arka plan video görsel kimliği zaten taşıyor.
+                Expanded(
+                  child: SingleChildScrollView(
+                    reverse: true,
+                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 448),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _TrackRow(
+                              title: state.currentTrack.title,
+                              subtitle: state.currentTrack.subtitle,
+                              loved: library.favoriteTrackIds
+                                  .contains(state.currentTrack.id),
+                              onToggleLove: () => ref
+                                  .read(libraryNotifierProvider.notifier)
+                                  .toggleFavoriteTrack(
+                                    state.currentTrack.id,
+                                  ),
+                            ),
+                            const SizedBox(height: 22),
+                            _SpectralProgressSection(
+                              progress: state.progress,
+                              onSeekRequested: (v) =>
+                                  controller.seekToProgress(v),
+                              positionLabel: _fmtDuration(state.position),
+                              durationLabel: _fmtDuration(state.duration),
+                            ),
+                            const SizedBox(height: 28),
+                            _TransportRow(
+                              playing: state.isPlaying,
+                              shuffle: state.shuffleEnabled,
+                              repeat: state.repeatMode,
+                              onPrevious: () => playSinglePrevious(ref),
+                              onPlayPause: () => toggleSinglePlayPause(ref),
+                              onNext: () => playSingleNext(ref),
+                              onShuffle: () => controller.toggleShuffle(),
+                              onRepeat: () => controller.cycleRepeatMode(),
+                            ),
+                            const SizedBox(height: 28),
+                            const _UtilityPills(),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -127,11 +236,313 @@ class _ExpandedPlayerScreenState extends ConsumerState<ExpandedPlayerScreen> {
   }
 }
 
+enum _NowPlayingMode { mix, single }
+
 String _fmtDuration(Duration duration) {
   final totalSeconds = duration.inSeconds;
   final minutes = totalSeconds ~/ 60;
   final seconds = totalSeconds % 60;
   return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+}
+
+/// Aktif (level > eşik) katmanların videolarını sırayla gösterir. Sabit
+/// süreli timer yok: bitişe [_crossfadeLeadIn] kadar süre kala sıradaki video
+/// yüklenir; böylece crossfade mevcut klibin son saniyeleriyle üst üste biner.
+/// Yedek olarak klip tam bittiğinde de geçiş tetiklenebilir. Tek aktif
+/// katmanda video loop'lanır.
+class _NowPlayingMixVideoBackdrop extends ConsumerStatefulWidget {
+  const _NowPlayingMixVideoBackdrop();
+
+  @override
+  ConsumerState<_NowPlayingMixVideoBackdrop> createState() =>
+      _NowPlayingMixVideoBackdropState();
+}
+
+class _NowPlayingMixVideoBackdropState
+    extends ConsumerState<_NowPlayingMixVideoBackdrop> {
+  static const _fadeDuration = Duration(milliseconds: 2400);
+
+  /// Crossfade süresinden biraz uzun: sonraki video init + opacity geçişi
+  /// sırasında mevcut klip hâlâ oynasın.
+  static const _crossfadeLeadIn = Duration(milliseconds: 3000);
+
+  List<String> _activeIds = const [];
+  int _activeIndex = 0;
+
+  // Çift slot: biri görünür, diğeri sıradaki için crossfade. Aynı asset'in
+  // yeniden init edilmesini önlemek için sabit ValueKey'ler kullanılır.
+  bool _slotAIsCurrent = true;
+  String? _slotAAsset;
+  String? _slotBAsset;
+
+  // Yeni asset slota yerleşti ama controller henüz init olmadıysa fade'i
+  // başlatmıyoruz; aksi halde kısa bir an "video yok" arka planı görünür.
+  // Yeni slot ready olduğunda flip'i [_commitFlip] uygular.
+  bool _pendingFlip = false;
+  Timer? _pendingFlipFallback;
+
+  @override
+  void initState() {
+    super.initState();
+    final mix = ref.read(mixerControllerProvider);
+    _applyActiveList(_computeActive(mix));
+  }
+
+  List<String> _computeActive(MixerState mix) => [
+        for (final id in kTrackVideoAssets.keys)
+          if ((mix.levelsByTrackId[id] ?? 0) > 1.0) id,
+      ];
+
+  String? _idForAsset(String? asset) {
+    if (asset == null) return null;
+    for (final e in kTrackVideoAssets.entries) {
+      if (e.value == asset) return e.key;
+    }
+    return null;
+  }
+
+  void _applyActiveList(List<String> next) {
+    if (listEquals(next, _activeIds)) return;
+    setState(() {
+      _activeIds = next;
+      if (next.isEmpty) {
+        return;
+      }
+
+      final currentAsset = _slotAIsCurrent ? _slotAAsset : _slotBAsset;
+      final currentId = _idForAsset(currentAsset);
+
+      if (currentId == null || !next.contains(currentId)) {
+        _activeIndex = 0;
+        final firstAsset = kTrackVideoAssets[next[0]];
+        if (_slotAIsCurrent) {
+          _slotAAsset = firstAsset;
+        } else {
+          _slotBAsset = firstAsset;
+        }
+      } else {
+        _activeIndex = next.indexOf(currentId);
+      }
+
+      // Pre-loading yok: ikinci decoder'ı sadece geçiş gerektiğinde mount
+      // ederiz. Tek aktifte de diğer slot boş kalır.
+      if (_slotAIsCurrent) {
+        _slotBAsset = null;
+      } else {
+        _slotAAsset = null;
+      }
+    });
+  }
+
+  /// Bitişe yaklaşıldı → sıradaki videoyu yükle; crossfade mevcut oynatmayla
+  /// üst üste biner.
+  void _onCurrentCrossfadeLeadIn(bool isSlotA) {
+    if (!mounted || _pendingFlip) return;
+    final isCurrent =
+        (isSlotA && _slotAIsCurrent) || (!isSlotA && !_slotAIsCurrent);
+    if (!isCurrent) return;
+    if (_activeIds.length <= 1) return;
+    _cycle();
+  }
+
+  /// Görünen slot'un videosu sona erdi (yedek sinyal).
+  void _onCurrentVideoCompleted(bool isSlotA) {
+    if (!mounted || _pendingFlip) return;
+    final isCurrent =
+        (isSlotA && _slotAIsCurrent) || (!isSlotA && !_slotAIsCurrent);
+    if (!isCurrent) return;
+    if (_activeIds.length <= 1) return; // Tek video → loop, geçiş yok.
+    _cycle();
+  }
+
+  void _cycle() {
+    if (!mounted || _activeIds.length <= 1) return;
+    if (_pendingFlip) return;
+    setState(() {
+      _activeIndex = (_activeIndex + 1) % _activeIds.length;
+      final nextAsset = kTrackVideoAssets[_activeIds[_activeIndex]];
+      // Yeni asset'i mevcut OLMAYAN slota yerleştir; fakat hemen flip etme.
+      // Yeni video ready olunca [_onSlotReady] crossfade'i tetikleyecek.
+      if (_slotAIsCurrent) {
+        _slotBAsset = nextAsset;
+      } else {
+        _slotAAsset = nextAsset;
+      }
+      _pendingFlip = true;
+    });
+    // Güvenlik ağı: ready sinyali bir nedenle gelmezse 5 sn sonra yine de
+    // geçiş yapılır.
+    _pendingFlipFallback?.cancel();
+    _pendingFlipFallback = Timer(const Duration(seconds: 5), _commitFlip);
+  }
+
+  void _onSlotReady(bool isSlotA) {
+    if (!_pendingFlip || !mounted) return;
+    // Yeni asset, mevcut olmayan slotta. O slot ready olunca commit et.
+    final newSlotIsA = !_slotAIsCurrent;
+    if (isSlotA != newSlotIsA) return;
+    _commitFlip();
+  }
+
+  void _commitFlip() {
+    if (!mounted || !_pendingFlip) return;
+    _pendingFlipFallback?.cancel();
+    _pendingFlipFallback = null;
+    setState(() {
+      _pendingFlip = false;
+      _slotAIsCurrent = !_slotAIsCurrent;
+    });
+    // Crossfade bitince eski slotu unmount et: çoğu zaman tek decoder kalır,
+    // CPU/GPU yükü düşer. Yine de kullanıcı bu süre içinde aktif katman
+    // listesini değiştirirse [_applyActiveList] doğrudan slotları yönetir.
+    Future.delayed(_fadeDuration + const Duration(milliseconds: 250), () {
+      if (!mounted || _activeIds.length <= 1) return;
+      setState(() {
+        if (_slotAIsCurrent) {
+          _slotBAsset = null;
+        } else {
+          _slotAAsset = null;
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _pendingFlipFallback?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mix = ref.watch(mixerControllerProvider);
+    final next = _computeActive(mix);
+    if (!listEquals(next, _activeIds)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _applyActiveList(next);
+      });
+    }
+
+    // Mix yüklenirken videoyu duraklatma; sadece tamamen pause olduğunda dur.
+    final shouldRun =
+        (mix.mixPlaying || mix.mixLoading) && _activeIds.isNotEmpty;
+
+    // Birden fazla aktif katman varsa video bitince geçeceğiz → loop=false.
+    // Tek aktifte sürekli aynı görüntü → loop=true.
+    final loop = _activeIds.length <= 1;
+
+    // Yalnızca görünür slotta oynat: gizli slottaki klip ilerlemesin; aksi
+    // halde opacity 0 iken süre dolup yanlış sinyaller üretebilirdi.
+    final playA = shouldRun && _slotAAsset != null && _slotAIsCurrent;
+    final playB = shouldRun && _slotBAsset != null && !_slotAIsCurrent;
+
+    return IgnorePointer(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (_slotAAsset != null)
+            LoopingAssetVideo(
+              key: const ValueKey('mix_video_slot_a'),
+              asset: _slotAAsset!,
+              shouldPlay: playA,
+              opacity: _slotAIsCurrent ? 1.0 : 0.0,
+              fadeDuration: _fadeDuration,
+              loop: loop,
+              endCrossfadeLeadIn: !loop ? _crossfadeLeadIn : null,
+              onEndCrossfadeLeadIn:
+                  !loop && playA ? () => _onCurrentCrossfadeLeadIn(true) : null,
+              onReady: () => _onSlotReady(true),
+              onCompleted:
+                  !loop && playA ? () => _onCurrentVideoCompleted(true) : null,
+            ),
+          if (_slotBAsset != null)
+            LoopingAssetVideo(
+              key: const ValueKey('mix_video_slot_b'),
+              asset: _slotBAsset!,
+              shouldPlay: playB,
+              opacity: !_slotAIsCurrent ? 1.0 : 0.0,
+              fadeDuration: _fadeDuration,
+              loop: loop,
+              endCrossfadeLeadIn: !loop ? _crossfadeLeadIn : null,
+              onEndCrossfadeLeadIn:
+                  !loop && playB ? () => _onCurrentCrossfadeLeadIn(false) : null,
+              onReady: () => _onSlotReady(false),
+              onCompleted:
+                  !loop && playB ? () => _onCurrentVideoCompleted(false) : null,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tekli oynatıcı için arka plan video: kategori/track id eşleşirse oynatılır.
+class _NowPlayingSingleVideoBackdrop extends StatelessWidget {
+  const _NowPlayingSingleVideoBackdrop({
+    required this.trackId,
+    required this.isPlaying,
+  });
+
+  final String trackId;
+  final bool isPlaying;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = kTrackVideoAssets[trackId];
+    if (asset == null) {
+      return const SizedBox.shrink();
+    }
+    return IgnorePointer(
+      child: LoopingAssetVideo(
+        asset: asset,
+        shouldPlay: isPlaying,
+        opacity: 1.0,
+      ),
+    );
+  }
+}
+
+/// Video üstüne yumuşak vignette + alt-koyulaşma; UI okunaklı kalsın diye.
+class _NowPlayingScrim extends StatelessWidget {
+  const _NowPlayingScrim();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment.center,
+                radius: 1.0,
+                colors: [
+                  Colors.black.withValues(alpha: 0.0),
+                  Colors.black.withValues(alpha: 0.45),
+                ],
+                stops: const [0.55, 1.0],
+              ),
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.35),
+                  Colors.transparent,
+                  Colors.black.withValues(alpha: 0.55),
+                ],
+                stops: const [0.0, 0.4, 1.0],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _PlayerMeshBackdrop extends StatelessWidget {
@@ -265,99 +676,6 @@ class _PlayerAppBar extends StatelessWidget {
         ),
         const SizedBox(width: 48),
       ],
-    );
-  }
-}
-
-class _AlbumArtWithGlow extends StatelessWidget {
-  const _AlbumArtWithGlow({required this.imageUrl, required this.category});
-
-  final String imageUrl;
-  final String category;
-
-  @override
-  Widget build(BuildContext context) {
-    const size = 288.0;
-    return Center(
-      child: SizedBox(
-        width: size + 48,
-        height: size + 48,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: size + 32,
-              height: size + 32,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.spectralLavender.withValues(alpha: 0.35),
-                    blurRadius: 60,
-                    spreadRadius: 4,
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              width: size + 8,
-              height: size + 8,
-              padding: const EdgeInsets.all(4),
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0x66A88BFF), Color(0x6681ECFF)],
-                ),
-              ),
-              child: ClipOval(
-                child: imageUrl.isNotEmpty
-                    ? Image.network(
-                        imageUrl,
-                        fit: BoxFit.cover,
-                        cacheWidth:
-                            (size * MediaQuery.devicePixelRatioOf(context))
-                                .round()
-                                .clamp(400, 900),
-                        errorBuilder: (_, _, _) =>
-                            _CategoryArtwork(category: category),
-                      )
-                    : _CategoryArtwork(category: category),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CategoryArtwork extends StatelessWidget {
-  const _CategoryArtwork({required this.category});
-
-  final String category;
-
-  @override
-  Widget build(BuildContext context) {
-    final icon = switch (category) {
-      'forest' => Icons.forest_rounded,
-      'waterfall' => Icons.water_drop_rounded,
-      'ocean' => Icons.waves_rounded,
-      'birds' => Icons.flutter_dash_rounded,
-      'fire' => Icons.local_fire_department_rounded,
-      'demo' => Icons.cloud_download_rounded,
-      _ => Icons.music_note_rounded,
-    };
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF1B2A4A), Color(0xFF2B1F57)],
-        ),
-      ),
-      child: Center(child: Icon(icon, size: 88, color: AppColors.onSurface)),
     );
   }
 }

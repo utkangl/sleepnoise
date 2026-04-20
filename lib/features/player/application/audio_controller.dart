@@ -209,8 +209,19 @@ class AudioController extends StateNotifier<AudioPlayerState> {
     if (index < 0) {
       return;
     }
-    await _player.seek(Duration.zero, index: index);
-    await _player.play();
+    // Android tarafında seek + hemen play sırasında bazen ses gelmiyor;
+    // önce kısa bir pause + sonra seek (gerekirse index değiştirerek) +
+    // unawaited play kombinasyonu güvenilir çalışıyor. play() future'ı
+    // oynatma BİTTİĞİNDE tamamlandığı için await edilmez.
+    try {
+      await _player.pause();
+    } catch (_) {}
+    if (_player.currentIndex != index) {
+      await _player.seek(Duration.zero, index: index);
+    } else {
+      await _player.seek(Duration.zero);
+    }
+    unawaited(_player.play());
   }
 
   Future<void> playNext() async {

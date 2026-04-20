@@ -20,6 +20,7 @@ class MixerState {
     required this.mixPlaying,
     required this.mixLoading,
     required this.showInNowPlaying,
+    this.loadedPresetId,
   });
 
   factory MixerState.initial() {
@@ -29,6 +30,7 @@ class MixerState {
       mixPlaying: false,
       mixLoading: false,
       showInNowPlaying: false,
+      loadedPresetId: null,
     );
   }
 
@@ -36,6 +38,11 @@ class MixerState {
   final bool mixPlaying;
   final bool mixLoading;
   final bool showInNowPlaying;
+
+  /// Mevcut karışım, kataloğa ait bir hazır miks olarak yüklendiyse onun id'si;
+  /// kullanıcı bir kanalı elle değiştirdiğinde sıfırlanır. UI bu alana bakarak
+  /// "Karışımı kaydet" gibi gereksiz aksiyonları gizleyebilir.
+  final String? loadedPresetId;
 
   int get activeLayerCount =>
       levelsByTrackId.values.where((v) => v > _activeLevelThreshold).length;
@@ -45,12 +52,16 @@ class MixerState {
     bool? mixPlaying,
     bool? mixLoading,
     bool? showInNowPlaying,
+    String? loadedPresetId,
+    bool clearLoadedPresetId = false,
   }) {
     return MixerState(
       levelsByTrackId: levelsByTrackId ?? this.levelsByTrackId,
       mixPlaying: mixPlaying ?? this.mixPlaying,
       mixLoading: mixLoading ?? this.mixLoading,
       showInNowPlaying: showInNowPlaying ?? this.showInNowPlaying,
+      loadedPresetId:
+          clearLoadedPresetId ? null : (loadedPresetId ?? this.loadedPresetId),
     );
   }
 }
@@ -151,7 +162,10 @@ class MixerController extends StateNotifier<MixerState> {
     }
 
     final merged = _levelsFromPreset(preset);
-    state = state.copyWith(levelsByTrackId: merged);
+    state = state.copyWith(
+      levelsByTrackId: merged,
+      loadedPresetId: preset.id,
+    );
 
     final noActiveLayers = merged.values.every(
       (value) => value <= _activeLevelThreshold,
@@ -199,7 +213,12 @@ class MixerController extends StateNotifier<MixerState> {
     final prev = state.levelsByTrackId[trackId] ?? 0;
     final next = Map<String, double>.from(state.levelsByTrackId);
     next[trackId] = v;
-    state = state.copyWith(levelsByTrackId: next);
+    // Kullanıcı eliyle bir kanalı oynattığı an, "yüklü hazır miks" bağlantısı
+    // kopar; karışım artık özel.
+    state = state.copyWith(
+      levelsByTrackId: next,
+      clearLoadedPresetId: true,
+    );
 
     final noActiveLayers = next.values.every(
       (value) => value <= _activeLevelThreshold,

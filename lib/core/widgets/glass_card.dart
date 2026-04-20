@@ -25,10 +25,14 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Border + ClipRRect kombinasyonunda iç dekorasyonun da aynı yarıçapı
+    // bilmesi şart; aksi halde köşede çerçeve yuvarlaktan farklı bir biçim
+    // çiziyor ve "taşma" gibi görünüyor.
     final inner = DecoratedBox(
       decoration: BoxDecoration(
         color: AppColors.surfaceVariant.withValues(alpha: fillOpacity),
         border: Border.all(color: AppColors.ghostBorder, width: 1),
+        borderRadius: BorderRadius.circular(borderRadius),
       ),
       child: padding != null ? Padding(padding: padding!, child: child) : child,
     );

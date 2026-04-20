@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/navigation/tab_reselect_provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/sleeping_noise_app_bar.dart';
 import '../../player/application/playback_visibility.dart';
@@ -13,11 +14,25 @@ import 'mixer_channel_factory.dart';
 import 'widgets/mixer_channel_tile.dart';
 import 'widgets/preset_mix_strip.dart';
 
-class MixerScreen extends ConsumerWidget {
+class MixerScreen extends ConsumerStatefulWidget {
   const MixerScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MixerScreen> createState() => _MixerScreenState();
+}
+
+class _MixerScreenState extends ConsumerState<MixerScreen> {
+  final _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    listenTabScrollToTop(ref, AppRoute.mixer.path, _scroll);
     final channels =
         mixableTracks().map(mixerChannelFromTrack).toList();
     final mix = ref.watch(mixerControllerProvider);
@@ -25,16 +40,23 @@ class MixerScreen extends ConsumerWidget {
     final chrome = ref.watch(
       shellPlaybackChromeVisibleProvider(AppRoute.mixer.path),
     );
-    final bottomPad =
-        MediaQuery.paddingOf(context).bottom + (chrome ? 210 : 100);
+    final mq = MediaQuery.paddingOf(context);
+    final scrollAreaTop = mq.top + SleepingNoiseAppBar.height;
+    final bottomPad = mq.bottom + (chrome ? 210 : 100);
     final canStartMix = mix.activeLayerCount > 0;
+    // Hazır bir miks yüklü ve kullanıcı henüz hiçbir kanalı değiştirmediyse,
+    // tekrar kaydetmek anlamsız: butonu gizle.
+    final canSaveAsCustom = canStartMix && mix.loadedPresetId == null;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Stack(
       children: [
-        const SafeArea(bottom: false, child: SleepingNoiseAppBar()),
-        Expanded(
+        Positioned(
+          top: scrollAreaTop,
+          left: 0,
+          right: 0,
+          bottom: 0,
           child: SingleChildScrollView(
+            controller: _scroll,
             padding: EdgeInsets.fromLTRB(24, 8, 24, bottomPad),
             child: Center(
               child: ConstrainedBox(
@@ -78,31 +100,28 @@ class MixerScreen extends ConsumerWidget {
                             ],
                           ),
                         ),
-                        IconButton(
-                          tooltip: 'Karışımı kaydet',
-                          onPressed: canStartMix
-                              ? () async {
-                                  final name =
-                                      await showMixSaveNameDialog(context);
-                                  if (!context.mounted ||
-                                      name == null ||
-                                      name.isEmpty) {
-                                    return;
-                                  }
-                                  await ref
-                                      .read(libraryNotifierProvider.notifier)
-                                      .saveCurrentMixerMix(ref, name);
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Kaydedildi: $name'),
-                                      ),
-                                    );
-                                  }
-                                }
-                              : null,
-                          icon: const Icon(Icons.bookmark_add_outlined),
-                        ),
+                        if (canSaveAsCustom)
+                          IconButton(
+                            tooltip: 'Karışımı kaydet',
+                            onPressed: () async {
+                              final name =
+                                  await showMixSaveNameDialog(context);
+                              if (!context.mounted ||
+                                  name == null ||
+                                  name.isEmpty) {
+                                return;
+                              }
+                              await ref
+                                  .read(libraryNotifierProvider.notifier)
+                                  .saveCurrentMixerMix(ref, name);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Kaydedildi: $name')),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.bookmark_add_outlined),
+                          ),
                       ],
                     ),
                     const SizedBox(height: 24),
@@ -169,6 +188,12 @@ class MixerScreen extends ConsumerWidget {
               ),
             ),
           ),
+        ),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: const SafeArea(bottom: false, child: SleepingNoiseAppBar()),
         ),
       ],
     );

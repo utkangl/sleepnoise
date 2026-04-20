@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/player/application/playback_visibility.dart';
+import '../navigation/tab_reselect_provider.dart';
+import '../routing/app_route.dart';
 import '../widgets/mesh_gradient_background.dart';
 import '../widgets/sleeping_noise_bottom_nav.dart';
 import '../widgets/sleeping_noise_mini_player.dart';
@@ -18,6 +20,10 @@ class MainShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     final showMini = ref.watch(shellPlaybackChromeVisibleProvider(currentPath));
+    final normalizedPath =
+        currentPath == '/' || currentPath.isEmpty
+            ? AppRoute.home.path
+            : currentPath;
 
     return Scaffold(
       extendBody: true,
@@ -38,7 +44,13 @@ class MainShell extends ConsumerWidget {
       ),
       bottomNavigationBar: SleepingNoiseBottomNav(
         currentPath: currentPath,
-        onSelect: (route) => context.go(route.path),
+        onSelect: (route) {
+          if (normalizedPath == route.path) {
+            bumpTabReselect(ref, route.path);
+          } else {
+            context.go(route.path);
+          }
+        },
       ),
     );
   }

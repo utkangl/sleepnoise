@@ -25,6 +25,8 @@ class SleepingNoiseBottomNav extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.surfaceContainerHighest.withValues(alpha: 0.72),
           border: Border(top: BorderSide(color: AppColors.ghostBorder)),
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(40)),
           boxShadow: [
             BoxShadow(
               color: AppColors.surfaceTint.withValues(alpha: 0.06),

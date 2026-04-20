@@ -96,7 +96,7 @@ const List<PresetMix> presetMixCatalog = [
   ),
   PresetMix(
     id: 'forest_ocean_horizon',
-    title: 'Orman ve ufk',
+    title: 'Orman ve ufuk',
     subtitle: 'Ağaçlar + uzak dalga',
     icon: Icons.landscape_rounded,
     levels: {

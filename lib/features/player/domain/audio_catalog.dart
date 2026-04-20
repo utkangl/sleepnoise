@@ -4,8 +4,8 @@ import 'audio_track.dart';
 const List<AudioTrack> builtInFeaturedTracks = [
   AudioTrack(
     id: 'waterfall',
-    title: 'Selale',
-    subtitle: 'Yumusak su sesi',
+    title: 'Şelale',
+    subtitle: 'Yumuşak su sesi',
     artworkUrl: '',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
     assetPath: 'assets/audio/core/waterfall.mp3',
@@ -17,7 +17,7 @@ const List<AudioTrack> builtInFeaturedTracks = [
   AudioTrack(
     id: 'forest',
     title: 'Orman',
-    subtitle: 'Ruzgar ve yaprak hissi',
+    subtitle: 'Rüzgâr ve yaprak hissi',
     artworkUrl: '',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
     assetPath: 'assets/audio/core/forest.mp3',
@@ -29,7 +29,7 @@ const List<AudioTrack> builtInFeaturedTracks = [
   AudioTrack(
     id: 'ocean',
     title: 'Okyanus',
-    subtitle: 'Derin dalga ambiyansi',
+    subtitle: 'Derin dalga ambiyansı',
     artworkUrl: '',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
     assetPath: 'assets/audio/core/ocean.mp3',
@@ -40,8 +40,8 @@ const List<AudioTrack> builtInFeaturedTracks = [
   ),
   AudioTrack(
     id: 'birds',
-    title: 'Kuslar',
-    subtitle: 'Dengeli kus civiltilari',
+    title: 'Kuşlar',
+    subtitle: 'Dengeli kuş cıvıltıları',
     artworkUrl: '',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
     assetPath: 'assets/audio/core/birds.mp3',
@@ -52,8 +52,8 @@ const List<AudioTrack> builtInFeaturedTracks = [
   ),
   AudioTrack(
     id: 'fire',
-    title: 'Ates',
-    subtitle: 'Sicak ates cirtisi',
+    title: 'Ateş',
+    subtitle: 'Sıcak ateş çıtırtısı',
     artworkUrl: '',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
     assetPath: 'assets/audio/core/fireplace.mp3',

@@ -25,29 +25,41 @@ class ExpandedMixPlayerBody extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 6),
-        _MixArtHeader(activeLayers: mix.activeLayerCount),
-        const SizedBox(height: 14),
-        Text(
-          'Karışım',
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-            height: 1.15,
-            color: AppColors.onSurface,
-            letterSpacing: -0.5,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          (mix.mixLoading && !mix.mixPlaying)
-              ? 'Sesler hazırlanıyor…'
-              : '${mix.activeLayerCount} aktif katman',
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: AppColors.onSurfaceVariant,
-          ),
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Karışım',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      height: 1.15,
+                      color: AppColors.onSurface,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    (mix.mixLoading && !mix.mixPlaying)
+                        ? 'Sesler hazırlanıyor…'
+                        : '${mix.activeLayerCount} aktif katman',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Mevcut karışımı favorilere kaydet (anlık seviyelerle birlikte).
+            if (mix.activeLayerCount > 0) const _MixFavoriteButton(),
+          ],
         ),
         const SizedBox(height: 14),
         if (mix.mixLoading && !mix.mixPlaying)
@@ -158,27 +170,6 @@ class ExpandedMixPlayerBody extends ConsumerWidget {
             ),
           ),
         ),
-        const SizedBox(height: 10),
-        OutlinedButton.icon(
-          onPressed: mix.activeLayerCount == 0
-              ? null
-              : () async {
-                  final name = await showMixSaveNameDialog(context);
-                  if (!context.mounted || name == null || name.isEmpty) {
-                    return;
-                  }
-                  await ref
-                      .read(libraryNotifierProvider.notifier)
-                      .saveCurrentMixerMix(ref, name);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Kaydedildi: $name')),
-                    );
-                  }
-                },
-          icon: const Icon(Icons.bookmark_add_outlined),
-          label: const Text('Karışımı kaydet'),
-        ),
         const SizedBox(height: 14),
         const _MixSleepTimerPill(),
         const SizedBox(height: 10),
@@ -219,6 +210,71 @@ class ExpandedMixPlayerBody extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Karışımı (anlık seviyelerle) favorilere ekleyen yuvarlak buton.
+/// Hazır mikslerde (loadedPresetId varsa) doğrudan o presetin favorisini
+/// toggle eder; özel karışımlarda ise isim sorup yeni bir [UserSavedMix]
+/// olarak kaydeder ve favori işaretler.
+class _MixFavoriteButton extends ConsumerWidget {
+  const _MixFavoriteButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mix = ref.watch(mixerControllerProvider);
+    final lib = ref.watch(libraryNotifierProvider);
+    final libCtl = ref.read(libraryNotifierProvider.notifier);
+    final presetId = mix.loadedPresetId;
+    final isPresetFav =
+        presetId != null && lib.favoritePresetMixIds.contains(presetId);
+
+    return Material(
+      color: AppColors.surfaceVariant.withValues(alpha: 0.5),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () async {
+          if (presetId != null) {
+            await libCtl.toggleFavoritePresetMix(presetId);
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  isPresetFav
+                      ? 'Favorilerden çıkarıldı'
+                      : 'Favorilere eklendi',
+                ),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+            return;
+          }
+          final name = await showMixSaveNameDialog(context);
+          if (!context.mounted || name == null || name.isEmpty) {
+            return;
+          }
+          await libCtl.saveCurrentMixerMix(ref, name);
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Favorilere eklendi: $name'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        },
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Icon(
+            isPresetFav
+                ? Icons.favorite_rounded
+                : Icons.favorite_border_rounded,
+            color: AppColors.spectralLavender,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -267,81 +323,6 @@ class _MixSleepTimerPill extends ConsumerWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MixArtHeader extends StatelessWidget {
-  const _MixArtHeader({required this.activeLayers});
-
-  final int activeLayers;
-
-  @override
-  Widget build(BuildContext context) {
-    const outer = 168.0;
-    const ring = 152.0;
-    const inner = 138.0;
-    return Center(
-      child: SizedBox(
-        width: outer,
-        height: outer,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: ring,
-              height: ring,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.spectralLavender.withValues(alpha: 0.3),
-                    blurRadius: 28,
-                    spreadRadius: 1,
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              width: inner,
-              height: inner,
-              padding: const EdgeInsets.all(3),
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0x66A88BFF), Color(0x6681ECFF)],
-                ),
-              ),
-              child: ClipOval(
-                child: ColoredBox(
-                  color: const Color(0xFF1B2A4A),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.layers_rounded,
-                        size: 44,
-                        color: AppColors.onSurface,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '$activeLayers katman',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );
