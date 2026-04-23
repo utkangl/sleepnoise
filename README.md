@@ -1,17 +1,152 @@
-# nocturnal
+SleepingNoise
 
-A new Flutter project.
+SleepingNoise, daha iyi odaklanma, rahatlama ve uyku için tasarlanmis bir Flutter white-noise uygulamasidir.
+Kullanici; doga seslerini tekli oynatabilir, birden fazla sesi katmanlayarak kendi karisimini olusturabilir ve favori mikslerini kaydedebilir.
 
-## Getting Started
+Neler Sunuyor?
 
-This project is a starting point for a Flutter application.
 
-A few resources to get you started if this is your first Flutter project:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+
+Tekli oynatma ve hizli baslatma: Okyanus, yagmur, kus sesleri, ates gibi sesleri tek tikla cal.
+
+
+
+Mixer deneyimi: Birden fazla sesi ayni anda seviyeleriyle karistir.
+
+
+
+Kaydedilebilir karisimlar: Olusturdugun karisimlari kutuphaneye kaydet ve tekrar kullan.
+
+
+
+Remote katalog + indirme: Uzak katalogdaki sesleri cihaza indir, sonra mixer icinde de kullan.
+
+
+
+Video destekli Now Playing: Oynayan/kullanilan ses kategorisine uygun arka plan video gecisleri.
+
+
+
+Sleep timer: Uygulamayi belirlenen sure sonunda otomatik durdur.
+
+Teknoloji Yigini
+
+
+
+
+
+Framework: Flutter (Dart 3)
+
+
+
+State management: Riverpod (flutter_riverpod)
+
+
+
+Routing: go_router
+
+
+
+Audio engine: just_audio + audio_session
+
+
+
+Video backdrop: video_player
+
+
+
+Remote data: Supabase REST benzeri endpoint entegrasyonu (http)
+
+
+
+Local persistence/cache: shared_preferences, path_provider
+
+Proje Yapisi (Ozet)
+
+lib/
+  core/                 # Tema, routing, genel utility ve config
+  features/
+    player/             # Tekli oynatma, now playing, audio source/caching
+    mixer/              # Katmanli karisim motoru ve mixer UI
+    library/            # Favoriler, kayitli miksler, indirilen icerikler
+    catalog/            # Uzak katalog fetch ve uygulama katmani
+
+Kurulum
+
+1) Gereksinimler
+
+
+
+
+
+Flutter SDK (3.x)
+
+
+
+Android Studio veya VS Code + Flutter eklentileri
+
+
+
+Android/iOS toolchain (hedef platforma gore)
+
+2) Bagimliliklar
+
+flutter pub get
+
+3) Calistirma
+
+flutter run
+
+Remote Katalog Konfigurasyonu
+
+Uygulamadaki uzak katalog ozelligi icin lib/core/config/remote_catalog_config.dart dosyasindaki degerleri doldur:
+
+
+
+
+
+kRemoteCatalogBaseUrl
+
+
+
+kRemoteCatalogAnonKey
+
+
+
+kRemoteCatalogTable
+
+Bu alanlar bos kalirsa uygulama sadece yerel katalogla calismaya devam eder.
+
+Build
+
+flutter build apk --release
+
+
+
+Not: Repoda yer alan imza dosyalari/anahtarlar (.jks vb.) guvenlik acisindan ozel tutulmalidir.
+
+Yol Haritasi Fikirleri
+
+
+
+
+
+Kategori bazli mixer filtreleme ve arama
+
+
+
+Daha fazla remote katalog metadatasi (etiket, BPM, mood)
+
+
+
+Cloud senkron favoriler / cihazlar arasi tasima
+
+Katki
+
+PR ve issue acmadan once degisiklik kapsamini kisaca yazmaniz ve ilgili ekran kaydini eklemeniz cok faydali olur.
+
+Lisans
+
+Bu proje su an icin ozel/kapali kullanim odakli gelistirilmektedir. Lisans bilgisi netlestirildiginde bu bolum guncellenecektir.
