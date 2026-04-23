@@ -134,31 +134,44 @@ class AudioController extends StateNotifier<AudioPlayerState> {
       }),
     ]);
 
+    await _setPlaylist(
+      List<AudioTrack>.from(state.playlist),
+      initialIndex: state.currentIndex,
+    );
+  }
+
+  Future<void> _setPlaylist(
+    List<AudioTrack> tracks, {
+    int initialIndex = 0,
+  }) async {
     try {
       final sources = <AudioSource>[];
-      for (final track in state.playlist) {
+      for (final track in tracks) {
         sources.add(await audioSourceForTrack(track));
       }
-      await _player.setAudioSources(sources, initialIndex: state.currentIndex);
+      await _player.setAudioSources(sources, initialIndex: initialIndex);
       final duration = _player.duration ?? Duration.zero;
       state = state.copyWith(
+        playlist: tracks,
+        currentIndex: initialIndex,
         duration: duration,
+        position: Duration.zero,
         isLoading: false,
         clearErrorMessage: true,
       );
     } catch (_) {
       try {
         final fallback = <AudioSource>[];
-        for (final track in state.playlist) {
+        for (final track in tracks) {
           fallback.add(await audioSourceUriOnlyFallback(track));
         }
-        await _player.setAudioSources(
-          fallback,
-          initialIndex: state.currentIndex,
-        );
+        await _player.setAudioSources(fallback, initialIndex: initialIndex);
         final duration = _player.duration ?? Duration.zero;
         state = state.copyWith(
+          playlist: tracks,
+          currentIndex: initialIndex,
           duration: duration,
+          position: Duration.zero,
           isLoading: false,
           clearErrorMessage: true,
         );
@@ -205,9 +218,18 @@ class AudioController extends StateNotifier<AudioPlayerState> {
 
   Future<void> playTrackById(String trackId) async {
     await _ensureReady();
-    final index = state.playlist.indexWhere((track) => track.id == trackId);
+    var index = state.playlist.indexWhere((track) => track.id == trackId);
     if (index < 0) {
-      return;
+      // Standalone/remote çalmadan sonra playlist tek parçaya düşebilir.
+      // Built-in kataloga geri dönüldüğünde id bulunamazsa varsayılan
+      // featured playlist'i tekrar kurup aramayı yenile.
+      final rebuilt = List<AudioTrack>.from(featuredTracks);
+      final rebuiltIndex = rebuilt.indexWhere((track) => track.id == trackId);
+      if (rebuiltIndex < 0) {
+        return;
+      }
+      await _setPlaylist(rebuilt, initialIndex: rebuiltIndex);
+      index = rebuiltIndex;
     }
     // Android tarafında seek + hemen play sırasında bazen ses gelmiyor;
     // önce kısa bir pause + sonra seek (gerekirse index değiştirerek) +
@@ -221,6 +243,25 @@ class AudioController extends StateNotifier<AudioPlayerState> {
     } else {
       await _player.seek(Duration.zero);
     }
+    unawaited(_player.play());
+  }
+
+  /// Playlist'te olmayan tek bir uzak/parça kaynağını anında çalar.
+  /// İndirilebilir katalog parçaları için kullanılır.
+  Future<void> playStandaloneTrack(AudioTrack track) async {
+    await _ensureReady();
+    try {
+      await _player.pause();
+    } catch (_) {}
+    final source = await audioSourceForTrack(track);
+    await _player.setAudioSource(source);
+    state = state.copyWith(
+      playlist: [track],
+      currentIndex: 0,
+      position: Duration.zero,
+      duration: _player.duration ?? Duration.zero,
+      clearErrorMessage: true,
+    );
     unawaited(_player.play());
   }
 

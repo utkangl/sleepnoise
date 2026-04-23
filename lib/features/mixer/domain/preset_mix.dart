@@ -14,7 +14,7 @@ class PresetMix {
   final String title;
   final String subtitle;
 
-  /// Sadece sıfırdan büyük seviyeler; tanımsız kanallar [mixableTrackIds] ile 0 kabul edilir.
+  /// Sadece sıfırdan büyük seviyeler; tanımsız kanallar o an miklenebilir kümede 0 kabul edilir.
   final Map<String, double> levels;
   final IconData icon;
 }

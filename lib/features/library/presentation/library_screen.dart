@@ -13,10 +13,14 @@ import '../../../core/widgets/sleeping_noise_app_bar.dart';
 import '../../mixer/application/mixer_controller.dart';
 import '../../mixer/domain/preset_mix.dart';
 import '../../mixer/domain/preset_mix_catalog.dart';
+import '../../player/application/audio_controller.dart';
 import '../../player/application/playback_facade.dart';
+import '../../player/application/playback_owner_controller.dart';
 import '../../player/application/playback_visibility.dart';
 import '../../player/domain/audio_catalog.dart';
+import '../../catalog/application/remote_catalog_controller.dart';
 import '../application/library_notifier.dart';
+import '../application/track_download_controller.dart';
 
 class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
@@ -130,8 +134,26 @@ class _LibraryCatalogTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final lib = ref.watch(libraryNotifierProvider);
     final libCtl = ref.read(libraryNotifierProvider.notifier);
+    final downloads = ref.watch(trackDownloadControllerProvider);
+    final downloadCtl = ref.read(trackDownloadControllerProvider.notifier);
+    final remoteCatalog = ref.watch(remoteCatalogProvider);
     final mixCtl = ref.read(mixerControllerProvider.notifier);
-    final tracks = featuredTracks;
+    final localTracks = featuredTracks;
+    final downloadedRemoteTracks = remoteCatalog.maybeWhen(
+      data: (items) => items
+          .where(
+            (t) =>
+                downloads.statusFor(t.id).status ==
+                TrackDownloadStatus.downloaded,
+          )
+          .toList(),
+      orElse: () => const [],
+    );
+    final tracks = [...localTracks, ...downloadedRemoteTracks];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      downloadCtl.ensureHydrated(localTracks);
+      remoteCatalog.whenData(downloadCtl.ensureHydrated);
+    });
 
     return ListView(
       controller: scrollController,
@@ -145,6 +167,7 @@ class _LibraryCatalogTab extends ConsumerWidget {
         ),
         const SizedBox(height: 10),
         ...tracks.map((t) {
+          final isBuiltIn = t.assetPath != null && t.assetPath!.isNotEmpty;
           final fav = lib.favoriteTrackIds.contains(t.id);
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -197,12 +220,97 @@ class _LibraryCatalogTab extends ConsumerWidget {
                       color: fav ? AppColors.primary : AppColors.onSurfaceVariant,
                     ),
                   ),
-                  FilledButton.tonal(
-                    onPressed: () => playSingleSoundscape(
-                      ref,
-                      t.id,
-                      openNowPlaying: context,
+                  if (t.assetPath == null || t.assetPath!.isEmpty)
+                    Builder(
+                      builder: (context) {
+                        final status = downloads.statusFor(t.id).status;
+                        final downloading =
+                            status == TrackDownloadStatus.downloading;
+                        final downloaded =
+                            status == TrackDownloadStatus.downloaded;
+                        return IconButton(
+                          tooltip:
+                              downloaded ? 'İndirilen dosyayı sil' : 'Cihaza indir',
+                          onPressed: downloading
+                              ? null
+                              : () async {
+                                  if (downloaded) {
+                                    final audioState =
+                                        ref.read(audioControllerProvider);
+                                    if (audioState.currentTrack.id == t.id) {
+                                      await ref
+                                          .read(audioControllerProvider.notifier)
+                                          .pause();
+                                      ref
+                                          .read(playbackOwnerProvider.notifier)
+                                          .clear();
+                                    }
+                                    await downloadCtl.removeTrack(t);
+                                    if (!context.mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        duration: const Duration(seconds: 1),
+                                        content: Text(
+                                          '${t.title} cihazdan silindi',
+                                        ),
+                                      ),
+                                    );
+                                    return;
+                                  }
+                                  await downloadCtl.downloadTrack(t);
+                                  if (!context.mounted) return;
+                                  final nextStatus = ref
+                                      .read(trackDownloadControllerProvider)
+                                      .statusFor(t.id)
+                                      .status;
+                                  final ok =
+                                      nextStatus == TrackDownloadStatus.downloaded;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      duration: const Duration(seconds: 1),
+                                      content: Text(
+                                        ok
+                                            ? '${t.title} indirildi'
+                                            : '${t.title} indirilemedi',
+                                      ),
+                                    ),
+                                  );
+                                },
+                          icon: downloading
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Icon(
+                                  downloaded
+                                      ? Icons.delete_outline_rounded
+                                      : Icons.download_rounded,
+                                  color: downloaded
+                                      ? AppColors.error
+                                      : AppColors.onSurfaceVariant,
+                                ),
+                        );
+                      },
                     ),
+                  FilledButton.tonal(
+                    onPressed: () {
+                      if (isBuiltIn) {
+                        playSingleSoundscape(
+                          ref,
+                          t.id,
+                          openNowPlaying: context,
+                        );
+                        return;
+                      }
+                      playSingleTrack(
+                        ref,
+                        t,
+                        openNowPlaying: context,
+                      );
+                    },
                     child: const Text('Çal'),
                   ),
                 ],
@@ -210,6 +318,173 @@ class _LibraryCatalogTab extends ConsumerWidget {
             ),
           );
         }),
+        const SizedBox(height: 16),
+        Text(
+          'İndirilebilir katalog',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+        ),
+        const SizedBox(height: 6),
+        remoteCatalog.when(
+          data: (remoteTracks) {
+            if (remoteTracks.isEmpty) {
+              return Text(
+                'Henüz uzak katalog içeriği yok.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.onSurfaceVariant,
+                    ),
+              );
+            }
+            return Column(
+              children: [
+                for (final t in remoteTracks)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: GlassCard(
+                      borderRadius: 14,
+                      blurSigma: 8,
+                      useBackdropBlur: false,
+                      fillOpacity: 0.42,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  t.title,
+                                  style: Theme.of(context).textTheme.titleSmall
+                                      ?.copyWith(fontWeight: FontWeight.w800),
+                                ),
+                                Text(
+                                  t.subtitle.isEmpty
+                                      ? 'Uzak katalog sesi'
+                                      : t.subtitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: AppColors.onSurfaceVariant,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Builder(
+                            builder: (context) {
+                              final status = downloads.statusFor(t.id).status;
+                              final downloading =
+                                  status == TrackDownloadStatus.downloading;
+                              final downloaded =
+                                  status == TrackDownloadStatus.downloaded;
+                              return IconButton(
+                                tooltip: downloaded
+                                    ? 'İndirilen dosyayı sil'
+                                    : 'Cihaza indir',
+                                onPressed: downloading
+                                    ? null
+                                    : () async {
+                                        if (downloaded) {
+                                          final audioState =
+                                              ref.read(audioControllerProvider);
+                                          if (audioState.currentTrack.id == t.id) {
+                                            await ref
+                                                .read(
+                                                  audioControllerProvider.notifier,
+                                                )
+                                                .pause();
+                                            ref
+                                                .read(
+                                                  playbackOwnerProvider.notifier,
+                                                )
+                                                .clear();
+                                          }
+                                          await downloadCtl.removeTrack(t);
+                                          if (!context.mounted) return;
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              duration:
+                                                  const Duration(seconds: 1),
+                                              content: Text(
+                                                '${t.title} cihazdan silindi',
+                                              ),
+                                            ),
+                                          );
+                                          return;
+                                        }
+                                        await downloadCtl.downloadTrack(t);
+                                        if (!context.mounted) return;
+                                        final nextStatus = ref
+                                            .read(trackDownloadControllerProvider)
+                                            .statusFor(t.id)
+                                            .status;
+                                        final ok = nextStatus ==
+                                            TrackDownloadStatus.downloaded;
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            duration:
+                                                const Duration(seconds: 1),
+                                            content: Text(
+                                              ok
+                                                  ? '${t.title} indirildi'
+                                                  : '${t.title} indirilemedi',
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                icon: downloading
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : Icon(
+                                        downloaded
+                                            ? Icons.delete_outline_rounded
+                                            : Icons.download_rounded,
+                                        color: downloaded
+                                            ? AppColors.error
+                                            : AppColors.onSurfaceVariant,
+                                      ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+          loading: () => const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          ),
+          error: (error, stackTrace) => Text(
+            'Uzak katalog alınamadı.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.onSurfaceVariant,
+                ),
+          ),
+        ),
         const SizedBox(height: 24),
         Text(
           'Hazır mikslar',

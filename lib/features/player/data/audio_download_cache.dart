@@ -108,6 +108,15 @@ class AudioDownloadCache {
     }
   }
 
+  /// Sadece ilgili track önbelleğini temizler.
+  Future<void> removeTrack(String trackId) async {
+    try {
+      final dir = await _ensureDir();
+      await _deleteIfExists(File(_audioPath(dir, trackId)));
+      await _deleteIfExists(File(_metaPath(dir, trackId)));
+    } catch (_) {}
+  }
+
   Future<void> clearAll() async {
     try {
       final base = await getApplicationSupportDirectory();

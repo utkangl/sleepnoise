@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/routing/app_route.dart';
 import '../../mixer/application/mixer_controller.dart';
+import '../domain/audio_track.dart';
 import 'audio_controller.dart';
 import 'playback_owner_controller.dart';
 
@@ -31,6 +32,22 @@ Future<void> playSingleSoundscape(
   // navigation bloklanmaz; NP zaten yüklenme durumunu gösterir.
   unawaited(
     ref.read(audioControllerProvider.notifier).playTrackById(trackId),
+  );
+}
+
+/// Katalogdan indirilen/uzak tek parçayı doğrudan çalar.
+Future<void> playSingleTrack(
+  WidgetRef ref,
+  AudioTrack track, {
+  BuildContext? openNowPlaying,
+}) async {
+  await ref.read(mixerControllerProvider.notifier).stopMix();
+  ref.read(playbackOwnerProvider.notifier).activateSingle();
+  if (openNowPlaying != null && openNowPlaying.mounted) {
+    openNowPlaying.push(AppRoute.nowPlaying.path);
+  }
+  unawaited(
+    ref.read(audioControllerProvider.notifier).playStandaloneTrack(track),
   );
 }
 

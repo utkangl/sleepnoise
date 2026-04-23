@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../library/application/library_notifier.dart';
 import '../../mixer/application/mixer_controller.dart';
+import '../../mixer/application/mixer_mixable_catalog.dart';
 import '../application/audio_controller.dart';
 import '../application/playback_owner_controller.dart';
 import '../application/playback_facade.dart';
@@ -157,6 +158,7 @@ class _ExpandedPlayerScreenState extends ConsumerState<ExpandedPlayerScreen> {
           const _PlayerMeshBackdrop(),
           _NowPlayingSingleVideoBackdrop(
             trackId: state.currentTrack.id,
+            category: state.currentTrack.category,
             isPlaying: state.isPlaying,
           ),
           const _NowPlayingScrim(),
@@ -269,6 +271,11 @@ class _NowPlayingMixVideoBackdropState
   List<String> _activeIds = const [];
   int _activeIndex = 0;
 
+  /// İndirilmiş uzak parçalar da kategorilerine (ör. 'fire', 'waterfall')
+  /// göre video alır; bu harita `_computeActive` ile birlikte güncellenir ve
+  /// slotlara asset çözerken kullanılır.
+  Map<String, String> _idToAsset = const {};
+
   // Çift slot: biri görünür, diğeri sıradaki için crossfade. Aynı asset'in
   // yeniden init edilmesini önlemek için sabit ValueKey'ler kullanılır.
   bool _slotAIsCurrent = true;
@@ -285,17 +292,33 @@ class _NowPlayingMixVideoBackdropState
   void initState() {
     super.initState();
     final mix = ref.read(mixerControllerProvider);
+    final tracks = ref.read(mixerMixableTracksProvider);
+    _idToAsset = _buildIdToAsset(tracks);
     _applyActiveList(_computeActive(mix));
   }
 
+  Map<String, String> _buildIdToAsset(List<dynamic> tracks) {
+    final map = <String, String>{};
+    for (final t in tracks) {
+      final asset = resolveTrackVideoAsset(
+        trackId: t.id as String,
+        category: t.category as String,
+      );
+      if (asset != null) {
+        map[t.id as String] = asset;
+      }
+    }
+    return map;
+  }
+
   List<String> _computeActive(MixerState mix) => [
-        for (final id in kTrackVideoAssets.keys)
+        for (final id in _idToAsset.keys)
           if ((mix.levelsByTrackId[id] ?? 0) > 1.0) id,
       ];
 
   String? _idForAsset(String? asset) {
     if (asset == null) return null;
-    for (final e in kTrackVideoAssets.entries) {
+    for (final e in _idToAsset.entries) {
       if (e.value == asset) return e.key;
     }
     return null;
@@ -314,7 +337,7 @@ class _NowPlayingMixVideoBackdropState
 
       if (currentId == null || !next.contains(currentId)) {
         _activeIndex = 0;
-        final firstAsset = kTrackVideoAssets[next[0]];
+        final firstAsset = _idToAsset[next[0]];
         if (_slotAIsCurrent) {
           _slotAAsset = firstAsset;
         } else {
@@ -360,7 +383,7 @@ class _NowPlayingMixVideoBackdropState
     if (_pendingFlip) return;
     setState(() {
       _activeIndex = (_activeIndex + 1) % _activeIds.length;
-      final nextAsset = kTrackVideoAssets[_activeIds[_activeIndex]];
+      final nextAsset = _idToAsset[_activeIds[_activeIndex]];
       // Yeni asset'i mevcut OLMAYAN slota yerleştir; fakat hemen flip etme.
       // Yeni video ready olunca [_onSlotReady] crossfade'i tetikleyecek.
       if (_slotAIsCurrent) {
@@ -416,6 +439,11 @@ class _NowPlayingMixVideoBackdropState
   @override
   Widget build(BuildContext context) {
     final mix = ref.watch(mixerControllerProvider);
+    final mixableTracks = ref.watch(mixerMixableTracksProvider);
+    final rebuilt = _buildIdToAsset(mixableTracks);
+    if (!mapEquals(rebuilt, _idToAsset)) {
+      _idToAsset = rebuilt;
+    }
     final next = _computeActive(mix);
     if (!listEquals(next, _activeIds)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -431,10 +459,12 @@ class _NowPlayingMixVideoBackdropState
     // Tek aktifte sürekli aynı görüntü → loop=true.
     final loop = _activeIds.length <= 1;
 
-    // Yalnızca görünür slotta oynat: gizli slottaki klip ilerlemesin; aksi
-    // halde opacity 0 iken süre dolup yanlış sinyaller üretebilirdi.
-    final playA = shouldRun && _slotAAsset != null && _slotAIsCurrent;
-    final playB = shouldRun && _slotBAsset != null && !_slotAIsCurrent;
+    // Her iki slot da mount olduğu sürece oynar. Böylece crossfade boyunca
+    // giden slot **durmaz** (son karede donmaz); fade sona erdikten sonra
+    // [_commitFlip] zaten eski slotu unmount ediyor. "Pause + fade" hissi
+    // yerine gerçek bir crossfade elde ederiz.
+    final playA = shouldRun && _slotAAsset != null;
+    final playB = shouldRun && _slotBAsset != null;
 
     return IgnorePointer(
       child: Stack(
@@ -448,12 +478,16 @@ class _NowPlayingMixVideoBackdropState
               opacity: _slotAIsCurrent ? 1.0 : 0.0,
               fadeDuration: _fadeDuration,
               loop: loop,
+              // Yalnızca mevcut (görünür) slot bitiş sinyallerini tetiklesin;
+              // gizli ama oynayan kopya cycle’ı çift tetiklemesin.
               endCrossfadeLeadIn: !loop ? _crossfadeLeadIn : null,
-              onEndCrossfadeLeadIn:
-                  !loop && playA ? () => _onCurrentCrossfadeLeadIn(true) : null,
+              onEndCrossfadeLeadIn: !loop && _slotAIsCurrent
+                  ? () => _onCurrentCrossfadeLeadIn(true)
+                  : null,
               onReady: () => _onSlotReady(true),
-              onCompleted:
-                  !loop && playA ? () => _onCurrentVideoCompleted(true) : null,
+              onCompleted: !loop && _slotAIsCurrent
+                  ? () => _onCurrentVideoCompleted(true)
+                  : null,
             ),
           if (_slotBAsset != null)
             LoopingAssetVideo(
@@ -464,11 +498,13 @@ class _NowPlayingMixVideoBackdropState
               fadeDuration: _fadeDuration,
               loop: loop,
               endCrossfadeLeadIn: !loop ? _crossfadeLeadIn : null,
-              onEndCrossfadeLeadIn:
-                  !loop && playB ? () => _onCurrentCrossfadeLeadIn(false) : null,
+              onEndCrossfadeLeadIn: !loop && !_slotAIsCurrent
+                  ? () => _onCurrentCrossfadeLeadIn(false)
+                  : null,
               onReady: () => _onSlotReady(false),
-              onCompleted:
-                  !loop && playB ? () => _onCurrentVideoCompleted(false) : null,
+              onCompleted: !loop && !_slotAIsCurrent
+                  ? () => _onCurrentVideoCompleted(false)
+                  : null,
             ),
         ],
       ),
@@ -480,15 +516,17 @@ class _NowPlayingMixVideoBackdropState
 class _NowPlayingSingleVideoBackdrop extends StatelessWidget {
   const _NowPlayingSingleVideoBackdrop({
     required this.trackId,
+    required this.category,
     required this.isPlaying,
   });
 
   final String trackId;
+  final String category;
   final bool isPlaying;
 
   @override
   Widget build(BuildContext context) {
-    final asset = kTrackVideoAssets[trackId];
+    final asset = resolveTrackVideoAsset(trackId: trackId, category: category);
     if (asset == null) {
       return const SizedBox.shrink();
     }

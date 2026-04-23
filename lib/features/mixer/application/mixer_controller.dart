@@ -3,14 +3,15 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../../catalog/application/remote_catalog_controller.dart';
 import '../../player/application/playback_owner_controller.dart';
 import '../../player/application/audio_controller.dart';
 import '../../player/data/track_audio_source.dart';
 import '../../player/domain/audio_catalog.dart';
 import '../../player/domain/audio_track.dart';
 import '../../library/domain/user_saved_mix.dart';
-import '../domain/mixable_tracks.dart';
 import '../domain/preset_mix.dart';
+import 'mixer_mixable_catalog.dart';
 
 const double _activeLevelThreshold = 1.0;
 
@@ -23,10 +24,10 @@ class MixerState {
     this.loadedPresetId,
   });
 
-  factory MixerState.initial() {
-    final ids = mixableTrackIds();
+  factory MixerState.initial(Ref ref) {
+    final tracks = ref.read(mixerMixableTracksProvider);
     return MixerState(
-      levelsByTrackId: {for (final id in ids) id: 0.0},
+      levelsByTrackId: {for (final t in tracks) t.id: 0.0},
       mixPlaying: false,
       mixLoading: false,
       showInNowPlaying: false,
@@ -72,7 +73,9 @@ final mixerControllerProvider =
     });
 
 class MixerController extends StateNotifier<MixerState> {
-  MixerController(this._ref) : super(MixerState.initial());
+  MixerController(Ref ref)
+      : _ref = ref,
+        super(MixerState.initial(ref));
 
   final Ref _ref;
   final Map<String, AudioPlayer> _players = {};
@@ -88,17 +91,24 @@ class MixerController extends StateNotifier<MixerState> {
   int _playMixToken = 0;
 
   void _invalidateAllVolumeApplies() {
-    for (final id in mixableTrackIds()) {
+    for (final id in _mixableIds()) {
       _volumeApplyGeneration[id] = (_volumeApplyGeneration[id] ?? 0) + 1;
     }
   }
 
+  List<String> _mixableIds() =>
+      _ref.read(mixerMixableTracksProvider).map((t) => t.id).toList();
+
   AudioTrack? _trackById(String id) {
     try {
       return featuredTracks.firstWhere((t) => t.id == id);
-    } catch (_) {
-      return null;
-    }
+    } catch (_) {}
+    final remote =
+        _ref.read(remoteCatalogProvider).valueOrNull ?? const <AudioTrack>[];
+    try {
+      return remote.firstWhere((t) => t.id == id);
+    } catch (_) {}
+    return null;
   }
 
   Future<AudioPlayer> _playerFor(String trackId) {
@@ -136,7 +146,7 @@ class MixerController extends StateNotifier<MixerState> {
 
   Map<String, double> _levelsFromPreset(PresetMix preset) {
     final next = <String, double>{};
-    for (final id in mixableTrackIds()) {
+    for (final id in _mixableIds()) {
       next[id] = (preset.levels[id] ?? 0).clamp(0.0, 100.0);
     }
     return next;
@@ -144,7 +154,7 @@ class MixerController extends StateNotifier<MixerState> {
 
   void _syncAllChannelVolumesFromState() {
     _invalidateAllVolumeApplies();
-    for (final id in mixableTrackIds()) {
+    for (final id in _mixableIds()) {
       final v = state.levelsByTrackId[id] ?? 0;
       final gen = (_volumeApplyGeneration[id] ?? 0) + 1;
       _volumeApplyGeneration[id] = gen;
@@ -353,15 +363,18 @@ class MixerController extends StateNotifier<MixerState> {
 
   Future<void> _resumeExistingMix() async {
     final levels = Map<String, double>.from(state.levelsByTrackId);
-    final activeIds = mixableTrackIds()
+    final activeIds = _mixableIds()
         .where((id) => (levels[id] ?? 0) > _activeLevelThreshold)
         .toList();
     if (activeIds.isEmpty) {
       return;
     }
+    // "Aynı anda tek ses" ilkesi: mix tekrar devreye girerken tek parça
+    // (standalone/remote) oynatıcısı da susturulmalı.
+    await _ref.read(audioControllerProvider.notifier).stopForMix();
     // State'te 0 olan ama daha önce aktif olmuş oyuncular varsa sessize al
     // ve duraklat: aksi halde resume sonrası "kapatılmış" sesler tekrar duyulur.
-    for (final id in mixableTrackIds()) {
+    for (final id in _mixableIds()) {
       if ((levels[id] ?? 0) > _activeLevelThreshold) {
         continue;
       }
@@ -420,7 +433,7 @@ class MixerController extends StateNotifier<MixerState> {
     try {
       await _ref.read(audioControllerProvider.notifier).stopForMix();
 
-      for (final id in mixableTrackIds()) {
+      for (final id in _mixableIds()) {
         if ((levels[id] ?? 0) > _activeLevelThreshold) {
           continue;
         }
@@ -432,7 +445,7 @@ class MixerController extends StateNotifier<MixerState> {
         }
       }
 
-      final activeIds = mixableTrackIds()
+      final activeIds = _mixableIds()
           .where((id) => (levels[id] ?? 0) > _activeLevelThreshold)
           .toList();
 
@@ -522,6 +535,45 @@ class MixerController extends StateNotifier<MixerState> {
   }
 
   bool get isMixAudible => state.mixPlaying;
+
+  /// Uzak katalog / indirme durumu değişince kanal listesini günceller;
+  /// artık miklenebilir olmayan id’lerin seviyesi ve oyuncusu kaldırılır.
+  void syncMixableCatalog(List<AudioTrack> tracks) {
+    final allowed = {for (final t in tracks) t.id};
+    final levels = Map<String, double>.from(state.levelsByTrackId);
+    final removedIds = levels.keys.where((id) => !allowed.contains(id)).toList();
+    for (final id in removedIds) {
+      levels.remove(id);
+      final p = _players.remove(id);
+      if (p != null) {
+        unawaited(p.dispose());
+      }
+      _volumeApplyGeneration.remove(id);
+    }
+    for (final id in allowed) {
+      levels.putIfAbsent(id, () => 0.0);
+    }
+
+    final noActive =
+        levels.values.every((v) => v <= _activeLevelThreshold);
+    if (noActive && (state.mixPlaying || state.mixLoading)) {
+      _invalidateAllVolumeApplies();
+      unawaited(_pauseEveryMixPlayer());
+      _ref.read(playbackOwnerProvider.notifier).clear();
+      state = state.copyWith(
+        levelsByTrackId: levels,
+        mixPlaying: false,
+        mixLoading: false,
+        showInNowPlaying: false,
+      );
+      return;
+    }
+
+    state = state.copyWith(levelsByTrackId: levels);
+    if (state.mixPlaying) {
+      _syncAllChannelVolumesFromState();
+    }
+  }
 
   @override
   void dispose() {

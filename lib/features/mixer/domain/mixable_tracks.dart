@@ -1,10 +1,10 @@
 import '../../player/domain/audio_catalog.dart';
 import '../../player/domain/audio_track.dart';
 
-/// Mikserde kanal olarak gösterilecek parçalar. [AudioTrack.mixable] ile kontrol edilir;
-/// linkten eklenen sesler için JSON’da `"mixable": true` yeterli.
-List<String> mixableTrackIds() =>
+/// Sadece paket içi, JSON ile işaretlenmiş miklenebilir parçalar.
+/// Uzak + indirilmiş kanallar için [mixerMixableTracksProvider] kullanılır.
+List<String> builtInMixableTrackIds() =>
     featuredTracks.where((t) => t.mixable).map((t) => t.id).toList();
 
-List<AudioTrack> mixableTracks() =>
+List<AudioTrack> builtInMixableTracks() =>
     featuredTracks.where((t) => t.mixable).toList();

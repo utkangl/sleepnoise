@@ -6,11 +6,14 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/routing/app_route.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/glass_card.dart';
+import '../../../catalog/application/remote_catalog_controller.dart';
 import '../../../library/application/library_notifier.dart';
+import '../../../library/application/track_download_controller.dart';
 import '../../../library/presentation/mix_name_dialog.dart';
 import '../../../mixer/application/mixer_controller.dart';
-import '../../../mixer/domain/mixable_tracks.dart';
+import '../../../mixer/application/mixer_mixable_catalog.dart';
 import '../../application/sleep_timer_controller.dart';
+import '../../domain/audio_track.dart';
 import '../../domain/audio_catalog.dart';
 import 'sleep_timer_bottom_sheet.dart';
 
@@ -19,6 +22,19 @@ class ExpandedMixPlayerBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final remoteCatalog = ref.watch(remoteCatalogProvider);
+    final downloadCtl = ref.read(trackDownloadControllerProvider.notifier);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      downloadCtl.ensureHydrated(featuredTracks);
+      remoteCatalog.whenData(downloadCtl.ensureHydrated);
+      ref.read(mixerControllerProvider.notifier).syncMixableCatalog(
+            ref.read(mixerMixableTracksProvider),
+          );
+    });
+    ref.listen<List<AudioTrack>>(mixerMixableTracksProvider, (_, next) {
+      ref.read(mixerControllerProvider.notifier).syncMixableCatalog(next);
+    });
+    final mixableTracks = ref.watch(mixerMixableTracksProvider);
     final mix = ref.watch(mixerControllerProvider);
     final mixCtl = ref.read(mixerControllerProvider.notifier);
 
@@ -77,8 +93,8 @@ class ExpandedMixPlayerBody extends ConsumerWidget {
             ),
           )
         else
-          ...mixableTrackIds().map((id) {
-            final track = featuredTracks.firstWhere((t) => t.id == id);
+          ...mixableTracks.map((track) {
+            final id = track.id;
             final value = (mix.levelsByTrackId[id] ?? 0).clamp(0, 100).toDouble();
             final pct = value.round();
             return Padding(

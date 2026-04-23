@@ -7,3 +7,15 @@ const Map<String, String> kTrackVideoAssets = {
   'forest': 'assets/video/forest.mp4',
   'fire': 'assets/video/fire.mp4',
 };
+
+/// Önce track id ile dener; yoksa kategoriye göre video bulur.
+String? resolveTrackVideoAsset({
+  required String trackId,
+  required String category,
+}) {
+  final byId = kTrackVideoAssets[trackId];
+  if (byId != null) return byId;
+  final normalizedCategory = category.trim().toLowerCase();
+  if (normalizedCategory.isEmpty) return null;
+  return kTrackVideoAssets[normalizedCategory];
+}

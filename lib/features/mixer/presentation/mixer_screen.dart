@@ -6,10 +6,14 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/sleeping_noise_app_bar.dart';
 import '../../player/application/playback_visibility.dart';
 import '../../../core/routing/app_route.dart';
+import '../../catalog/application/remote_catalog_controller.dart';
 import '../../library/application/library_notifier.dart';
+import '../../library/application/track_download_controller.dart';
 import '../../library/presentation/mix_name_dialog.dart';
+import '../../player/domain/audio_catalog.dart';
+import '../../player/domain/audio_track.dart';
 import '../application/mixer_controller.dart';
-import '../domain/mixable_tracks.dart';
+import '../application/mixer_mixable_catalog.dart';
 import 'mixer_channel_factory.dart';
 import 'widgets/mixer_channel_tile.dart';
 import 'widgets/preset_mix_strip.dart';
@@ -33,8 +37,20 @@ class _MixerScreenState extends ConsumerState<MixerScreen> {
   @override
   Widget build(BuildContext context) {
     listenTabScrollToTop(ref, AppRoute.mixer.path, _scroll);
+    final remoteCatalog = ref.watch(remoteCatalogProvider);
+    final downloadCtl = ref.read(trackDownloadControllerProvider.notifier);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      downloadCtl.ensureHydrated(featuredTracks);
+      remoteCatalog.whenData(downloadCtl.ensureHydrated);
+      ref.read(mixerControllerProvider.notifier).syncMixableCatalog(
+            ref.read(mixerMixableTracksProvider),
+          );
+    });
+    ref.listen<List<AudioTrack>>(mixerMixableTracksProvider, (_, next) {
+      ref.read(mixerControllerProvider.notifier).syncMixableCatalog(next);
+    });
     final channels =
-        mixableTracks().map(mixerChannelFromTrack).toList();
+        ref.watch(mixerMixableTracksProvider).map(mixerChannelFromTrack).toList();
     final mix = ref.watch(mixerControllerProvider);
     final mixCtl = ref.read(mixerControllerProvider.notifier);
     final chrome = ref.watch(
